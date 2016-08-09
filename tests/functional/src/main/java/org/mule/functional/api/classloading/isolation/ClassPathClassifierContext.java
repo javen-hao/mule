@@ -9,20 +9,22 @@ package org.mule.functional.api.classloading.isolation;
 
 import static org.mule.functional.classloading.isolation.utils.RunnerModuleUtils.getExcludedProperties;
 import static org.mule.runtime.core.util.Preconditions.checkNotNull;
-import org.mule.functional.classloading.isolation.maven.MavenArtifactMatcherPredicate;
-
-import com.google.common.collect.Sets;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 import java.util.function.Predicate;
 
+import org.mule.functional.classloading.isolation.maven.MavenArtifactMatcherPredicate;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.google.common.collect.Sets;
 
 /**
  * Represents a context that contains what is needed in order to do a classpath classification. It is used in
@@ -46,6 +48,7 @@ public class ClassPathClassifierContext {
   private final Set<Class> exportClasses;
 
   protected final Logger logger = LoggerFactory.getLogger(this.getClass());
+  private URLClassLoader classPathClassLoader;
 
   /**
    * Creates a context used for doing the classification of the class path.
@@ -62,6 +65,8 @@ public class ClassPathClassifierContext {
    * @param extensionBasePackages {@link List} of {@link String}'s base packages to be used for discovering extensions.
    * @param exportClasses {@link Set} of {@link Class} to be exported in addition to the ones already exported by the plugin, for
    *        testing purposes only.
+   * @param servicesExclusion {@link List} of {@link String}'s Maven artifactIds to be used for ignoring artifacts that have a
+   *        {@value org.mule.functional.classloading.isolation.classification.DefaultClassPathClassifier#SERVICE_PROPERTIES_FILE_NAME}
    * @throws IOException if an error happened while reading
    *         {@link org.mule.functional.classloading.isolation.utils.RunnerModuleUtils#EXCLUDED_PROPERTIES_FILE} file
    */
@@ -69,7 +74,8 @@ public class ClassPathClassifierContext {
                                     final List<URL> classPathURLs, final DependenciesGraph dependenciesGraph,
                                     final MavenMultiModuleArtifactMapping mavenMultiModuleArtifactMapping,
                                     final List<String> exclusionsList, final List<String> extraBootPackagesList,
-                                    final List<String> extensionBasePackages, final Set<Class> exportClasses)
+                                    final List<String> extensionBasePackages, final Set<Class> exportClasses,
+                                    final List<String> servicesExclusion)
       throws IOException {
     checkNotNull(rootArtifactClassesFolder, "rootArtifactClassesFolder cannot be null");
     checkNotNull(rootArtifactTestClassesFolder, "rootArtifactTestClassesFolder cannot be null");
@@ -90,6 +96,8 @@ public class ClassPathClassifierContext {
     this.extensionBasePackages = extensionBasePackages;
 
     this.exportClasses = exportClasses;
+
+    this.classPathClassLoader = new URLClassLoader(this.classPathURLs.toArray(new URL[0]), null);
   }
 
   /**
@@ -107,10 +115,17 @@ public class ClassPathClassifierContext {
   }
 
   /**
-   * @return a {@link List} of {@link URL}s for the classpath provided by JUnit (it is the complete list of URLs)
+   * @return a {@link List} of {@link URL}s for the classpath provided (list of URLs used for classification)
    */
   public List<URL> getClassPathURLs() {
     return classPathURLs;
+  }
+
+  /**
+   * @return a {@link URLClassLoader} for the classpath URLs set
+   */
+  public URLClassLoader getClassPathClassLoader() {
+    return classPathClassLoader;
   }
 
   /**
@@ -156,6 +171,15 @@ public class ClassPathClassifierContext {
    */
   public Set<Class> getExportClasses() {
     return exportClasses;
+  }
+
+  /**
+   * @return {@link List} of Maven artifactIds for artifacts that should not be classified a
+   * {@link org.mule.runtime.api.service.Service} if they have a
+   * {@value org.mule.functional.classloading.isolation.classification.DefaultClassPathClassifier#SERVICE_PROPERTIES_FILE_NAME}.
+   */
+  public List<String> getServicesExclusion() {
+    return servicesExclusion;
   }
 
   /**
@@ -237,5 +261,4 @@ public class ClassPathClassifierContext {
     }
     return packages;
   }
-
 }
