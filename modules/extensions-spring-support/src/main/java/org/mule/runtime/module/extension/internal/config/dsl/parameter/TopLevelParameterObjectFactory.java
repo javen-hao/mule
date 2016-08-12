@@ -8,12 +8,16 @@ package org.mule.runtime.module.extension.internal.config.dsl.parameter;
 
 import static org.mule.metadata.java.api.utils.JavaTypeUtils.getType;
 import static org.mule.runtime.core.util.ClassUtils.withContextClassLoader;
-import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.getFieldByAlias;
+import static org.mule.runtime.module.extension.internal.util.IntrospectionUtils.getAliasName;
 import static org.mule.runtime.module.extension.internal.util.MuleExtensionUtils.getInitialiserEvent;
+import static org.reflections.ReflectionUtils.getAllFields;
+import static org.reflections.ReflectionUtils.withAnnotation;
 import org.mule.metadata.api.model.ObjectType;
 import org.mule.runtime.core.api.MuleContext;
 import org.mule.runtime.core.api.MuleEvent;
 import org.mule.runtime.core.api.context.MuleContextAware;
+import org.mule.runtime.extension.api.annotation.Parameter;
+import org.mule.runtime.extension.api.annotation.ParameterGroup;
 import org.mule.runtime.module.extension.internal.config.dsl.AbstractExtensionObjectFactory;
 import org.mule.runtime.module.extension.internal.runtime.DefaultObjectBuilder;
 import org.mule.runtime.module.extension.internal.runtime.ObjectBuilder;
@@ -49,18 +53,34 @@ public class TopLevelParameterObjectFactory extends AbstractExtensionObjectFacto
   @Override
   public Object getObject() throws Exception {
     return withContextClassLoader(classLoader, () -> {
-      getParameters().forEach((key, value) -> {
-        Field field = getFieldByAlias(objectClass, key);
-        if (field != null) {
-          builder.addPropertyResolver(field, toValueResolver(value));
-        }
-      });
+      resolveParameters(objectClass, builder);
+      resolveParameterGroups(objectClass, builder);
 
       ValueResolver<Object> resolver = new ObjectBuilderValueResolver<>(builder);
       return resolver.isDynamic() ? resolver : resolver.resolve(getInitialiserEvent(muleContext));
-    }, Exception.class, exception -> {
-      throw exception;
-    });
+    }, Exception.class, exception ->
+                                  {
+                                    throw exception;
+                                  });
+  }
+
+  private void resolveParameterGroups(Class<?> objectClass, ObjectBuilder builder) {
+    for (Field groupField : getAllFields(objectClass, withAnnotation(ParameterGroup.class))) {
+      ObjectBuilder groupBuilder = new DefaultObjectBuilder(groupField.getType());
+      builder.addPropertyResolver(groupField, new ObjectBuilderValueResolver<>(groupBuilder));
+
+      resolveParameters(objectClass, groupBuilder);
+      resolveParameterGroups(groupField.getType(), groupBuilder);
+    }
+  }
+
+  private void resolveParameters(Class<?> objectClass, ObjectBuilder builder) {
+    for (Field field : getAllFields(objectClass, withAnnotation(Parameter.class))) {
+      String key = getAliasName(field);
+      if (getParameters().containsKey(key)) {
+        builder.addPropertyResolver(field, toValueResolver(getParameters().get(key)));
+      }
+    }
   }
 
   @Override
